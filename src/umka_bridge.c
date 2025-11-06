@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include "umka_bridge.h"
 #include "hash.h"
 #include "buffer.h"
@@ -6,6 +8,9 @@
 #include <string.h>
 #include <glob.h>
 #include <pthread.h>
+
+// Include scheduler after pthread to avoid type conflicts
+#include "scheduler.h"
 
 // Include UMKA API
 #include "umka_api.h"
@@ -139,15 +144,26 @@ Umka* umka_load_script(const char* path) {
         return NULL;
     }
 
-    // Create modified source with FFI import prepended
-    const char* import_stmt = "import \"rebuild_ffi.um\"\n\n";
-    size_t new_size = strlen(import_stmt) + strlen(original_source) + 1;
+    // Prepend FFI declarations directly to the source
+    // This makes the functions globally available without needing imports
+    const char* ffi_decls =
+        "// Rebuild FFI declarations (automatically added)\n"
+        "fn rebuild_depend_on*(target: str): str\n"
+        "fn rebuild_sys*(args: []str): int\n"
+        "fn rebuild_register_dep*(path: str)\n"
+        "fn rebuild_glob*(pattern: str): []str\n"
+        "fn rebuild_hash_file*(path: str): str\n"
+        "fn rebuild_log_info*(msg: str)\n"
+        "fn rebuild_log_debug*(msg: str)\n"
+        "fn rebuild_register_target*(name: str, fn_name: str)\n\n";
+
+    size_t new_size = strlen(ffi_decls) + strlen(original_source) + 1;
     char* modified_source = rebuild_malloc(new_size);
-    snprintf(modified_source, new_size, "%s%s", import_stmt, original_source);
+    snprintf(modified_source, new_size, "%s%s", ffi_decls, original_source);
     rebuild_free(original_source);
 
     // Initialize UMKA with the BUILD.um file path and modified source
-    // This loads the modified source as the MAIN MODULE
+    // This loads the source as the MAIN MODULE
     // Using the filename for error reporting but source from string
     if (!umkaInit(umka, path, modified_source, 1024 * 1024, NULL, 0, NULL, true, true, NULL)) {
         UmkaError* error = umkaGetError(umka);
@@ -213,27 +229,6 @@ Umka* umka_load_script(const char* path) {
     if (!umkaAddFunc(umka, "rebuild_register_target",
                      (UmkaExternFunc)umka_ffi_rebuild_register_target)) {
         LOG_ERROR("Failed to register rebuild_register_target FFI function");
-        umkaFree(umka);
-        return NULL;
-    }
-
-    // Add FFI declarations module that was imported by BUILD.um
-    // These external function declarations must be in a separate module
-    const char* ffi_module =
-        "// Rebuild FFI declarations\n"
-        "fn rebuild_depend_on*(target: str): str\n"
-        "fn rebuild_sys*(args: []str, argc: int): int\n"
-        "fn rebuild_register_dep*(path: str)\n"
-        "fn rebuild_glob*(pattern: str): []str\n"
-        "fn rebuild_hash_file*(path: str): str\n"
-        "fn rebuild_log_info*(msg: str)\n"
-        "fn rebuild_log_debug*(msg: str)\n"
-        "fn rebuild_register_target*(name: str, fn_name: str)\n";
-
-    if (!umkaAddModule(umka, "rebuild_ffi.um", ffi_module)) {
-        UmkaError* error = umkaGetError(umka);
-        LOG_ERROR("Failed to add FFI module: %s (line %d)",
-                  error->msg, error->line);
         umkaFree(umka);
         return NULL;
     }
@@ -385,58 +380,68 @@ void umka_ffi_rebuild_depend_on(void* params, void* result) {
 // FFI: rebuild_sys(args: []str, argc: int): int
 void umka_ffi_rebuild_sys(void* params, void* result) {
     UmkaContext* ctx = umka_bridge_get_context();
-    if (!ctx) {
+    if (!ctx || !ctx->scheduler || !ctx->current_recipe) {
         LOG_ERROR("rebuild_sys: No UMKA context");
+        UmkaStackSlot* result_slot = umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
+        result_slot->intVal = -1;
         return;
     }
 
     // Get args array parameter (first parameter)
     UmkaStackSlot* args_slot = umkaGetParam((UmkaStackSlot*)params, 0);
-    void* args_array = args_slot->ptrVal;
 
-    // Get argc parameter (second parameter)
-    UmkaStackSlot* argc_slot = umkaGetParam((UmkaStackSlot*)params, 1);
-    int argc = (int)argc_slot->intVal;
+    // UMKA dynamic array structure for []str
+    typedef UmkaDynArray(char*) StrArray;
+    StrArray* args_array = (StrArray*)args_slot->ptrVal;
 
-    if (!args_array || argc <= 0) {
-        LOG_ERROR("rebuild_sys: Invalid arguments");
+    if (!args_array || !args_array->data) {
+        LOG_ERROR("rebuild_sys: Invalid arguments array");
+        UmkaStackSlot* result_slot = umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
+        result_slot->intVal = -1;
+        return;
+    }
+
+    // Get array length
+    int argc = umkaGetDynArrayLen(args_array);
+    if (argc <= 0) {
+        LOG_ERROR("rebuild_sys: Empty arguments array");
         UmkaStackSlot* result_slot = umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
         result_slot->intVal = -1;
         return;
     }
 
     // Extract command arguments from UMKA dynamic array
-    // Note: This is simplified - actual implementation would need to properly
-    // extract strings from UMKA's dynamic array structure
     const char** args = rebuild_malloc(sizeof(char*) * (argc + 1));
     for (int i = 0; i < argc; i++) {
-        // This is a placeholder - actual array access would use umkaGetDynArrayLen
-        // and proper pointer arithmetic based on UMKA's array layout
-        args[i] = "placeholder";  // TODO: Extract from UMKA array
+        args[i] = args_array->data[i];
     }
     args[argc] = NULL;
 
-    LOG_DEBUG("rebuild_sys: executing command with %d args", argc);
+    LOG_DEBUG("rebuild_sys: executing command '%s' with %d args", args[0], argc);
 
-    // Call scheduler callback to execute command
-    SysResult sys_result = {0};
-    if (g_callbacks.sys) {
-        g_callbacks.sys(ctx->scheduler, ctx->current_recipe, args, argc, &sys_result);
-    }
+    // Execute command using scheduler
+    char* stdout_output = NULL;
+    char* stderr_output = NULL;
+    int exit_code = scheduler_execute_sys(ctx->scheduler, ctx->current_recipe,
+                                          args, argc, &stdout_output, &stderr_output);
 
     rebuild_free(args);
 
+    // Store output in recipe for later access if needed
+    // For now we just log it
+    if (stdout_output && strlen(stdout_output) > 0) {
+        LOG_INFO("Command output:\n%s", stdout_output);
+    }
+    if (stderr_output && strlen(stderr_output) > 0) {
+        LOG_WARN("Command stderr:\n%s", stderr_output);
+    }
+
+    rebuild_free(stdout_output);
+    rebuild_free(stderr_output);
+
     // Return exit code
     UmkaStackSlot* result_slot = umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
-    result_slot->intVal = sys_result.exit_code;
-
-    // Note: stdout/stderr could be stored in recipe or returned via a struct
-    if (sys_result.stdout_output) {
-        rebuild_free(sys_result.stdout_output);
-    }
-    if (sys_result.stderr_output) {
-        rebuild_free(sys_result.stderr_output);
-    }
+    result_slot->intVal = exit_code;
 }
 
 // FFI: rebuild_register_dep(path: str)
@@ -468,8 +473,10 @@ void umka_ffi_rebuild_register_dep(void* params, void* result) {
 // FFI: rebuild_glob(pattern: str): []str
 void umka_ffi_rebuild_glob(void* params, void* result) {
     UmkaContext* ctx = umka_bridge_get_context();
-    if (!ctx) {
+    if (!ctx || !ctx->umka) {
         LOG_ERROR("rebuild_glob: No UMKA context");
+        UmkaStackSlot* result_slot = umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
+        result_slot->ptrVal = NULL;
         return;
     }
 
@@ -479,6 +486,8 @@ void umka_ffi_rebuild_glob(void* params, void* result) {
 
     if (!pattern) {
         LOG_ERROR("rebuild_glob: NULL pattern");
+        UmkaStackSlot* result_slot = umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
+        result_slot->ptrVal = NULL;
         return;
     }
 
@@ -491,21 +500,40 @@ void umka_ffi_rebuild_glob(void* params, void* result) {
     if (ret != 0 && ret != GLOB_NOMATCH) {
         LOG_ERROR("rebuild_glob: glob failed for pattern: %s", pattern);
         globfree(&glob_result);
+        UmkaStackSlot* result_slot = umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
+        result_slot->ptrVal = NULL;
         return;
     }
 
-    // Create UMKA dynamic array for results
-    // Note: This is simplified - actual implementation would use umkaMakeDynArray
-    // with proper type information
+    // Get number of matches
     size_t count = (ret == GLOB_NOMATCH) ? 0 : glob_result.gl_pathc;
-
     LOG_DEBUG("rebuild_glob: found %zu matches", count);
 
-    // For now, just return empty array - TODO: implement proper array creation
-    UmkaStackSlot* result_slot = umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
-    result_slot->ptrVal = NULL;  // TODO: Create UMKA array with results
+    // Create UMKA dynamic array for string results
+    typedef UmkaDynArray(char*) StrArray;
+    StrArray* result_array = (StrArray*)rebuild_malloc(sizeof(StrArray));
+    result_array->itemSize = sizeof(char*);
+    result_array->type = NULL;  // Will be set by UMKA
+    result_array->data = NULL;
+
+    if (count > 0) {
+        // Allocate array data
+        result_array->data = (char**)rebuild_malloc(sizeof(char*) * count);
+
+        // Copy matched paths as UMKA strings
+        for (size_t i = 0; i < count; i++) {
+            result_array->data[i] = umkaMakeStr(ctx->umka, glob_result.gl_pathv[i]);
+        }
+    }
+
+    // Initialize the dynamic array properly
+    umkaMakeDynArray(ctx->umka, result_array, NULL, (int)count);
 
     globfree(&glob_result);
+
+    // Return the array
+    UmkaStackSlot* result_slot = umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
+    result_slot->ptrVal = result_array;
 }
 
 // FFI: rebuild_hash_file(path: str): str
