@@ -390,21 +390,33 @@ void umka_ffi_rebuild_sys(void* params, void* result) {
     // Get args array parameter (first parameter)
     UmkaStackSlot* args_slot = umkaGetParam((UmkaStackSlot*)params, 0);
 
+    // Debug logging
+    LOG_DEBUG("rebuild_sys: args_slot->ptrVal = %p", args_slot->ptrVal);
+    LOG_DEBUG("rebuild_sys: args_slot->intVal = %lld", (long long)args_slot->intVal);
+
     // UMKA dynamic array structure for []str
     typedef UmkaDynArray(char*) StrArray;
     StrArray* args_array = (StrArray*)args_slot->ptrVal;
 
-    if (!args_array || !args_array->data) {
-        LOG_ERROR("rebuild_sys: Invalid arguments array");
+    if (!args_array) {
+        LOG_ERROR("rebuild_sys: NULL arguments array pointer");
         UmkaStackSlot* result_slot = umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
         result_slot->intVal = -1;
         return;
     }
 
-    // Get array length
+    LOG_DEBUG("rebuild_sys: args_array->type = %p", args_array->type);
+    LOG_DEBUG("rebuild_sys: args_array->itemSize = %lld", (long long)args_array->itemSize);
+
+    // Get array length first
     int argc = umkaGetDynArrayLen(args_array);
-    if (argc <= 0) {
-        LOG_ERROR("rebuild_sys: Empty arguments array");
+
+    LOG_DEBUG("rebuild_sys: args_array = %p, args_array->data = %p, argc = %d",
+              args_array, args_array ? args_array->data : NULL, argc);
+
+    if (argc <= 0 || !args_array->data) {
+        LOG_ERROR("rebuild_sys: Invalid or empty arguments array (argc=%d, data=%p)",
+                  argc, args_array->data);
         UmkaStackSlot* result_slot = umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
         result_slot->intVal = -1;
         return;

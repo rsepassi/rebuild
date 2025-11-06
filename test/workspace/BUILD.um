@@ -1,19 +1,62 @@
-// Simple BUILD.um for testing register_targets() function
-// Note: External FFI functions are imported from rebuild_ffi.um
+// BUILD.um - Integration test workspace (simplified)
+//
+// Note: This test demonstrates dependency tracking without using sys()
+// The sys() FFI function has a known issue with UMKA array passing that needs more investigation
 
-// Helper function
+// Helper function to register targets
 fn target(name: str, fn_name: str) {
-    rebuild_ffi::rebuild_register_target(name, fn_name)
+    rebuild_register_target(name, fn_name)
 }
 
 // Main registration function
 fn register_targets() {
-    rebuild_ffi::rebuild_log_info("Registering targets...")
-    target("test:simple", "target_test_simple")
-    rebuild_ffi::rebuild_log_info("Targets registered!")
+    rebuild_log_info("Registering integration test targets...")
+    target("step1", "target_step1")
+    target("step2", "target_step2")
+    target("step3", "target_step3")
+    target("all", "target_all")
+    rebuild_log_info("Integration test targets registered!")
 }
 
-// Simple test target
-fn target_test_simple() {
-    rebuild_ffi::rebuild_log_info("Running simple test target!")
+// Step 1: Demonstrate basic target
+fn target_step1() {
+    rebuild_log_info("Step 1: Basic target execution")
+    rebuild_log_info("This target has no dependencies")
+    rebuild_log_info("Step 1 complete!")
+}
+
+// Step 2: Demonstrate dependency on step1
+fn target_step2() {
+    rebuild_log_info("Step 2: Target with dependency")
+
+    // Depend on step1
+    output := rebuild_depend_on("step1")
+    rebuild_log_info("Got dependency output: " + output)
+
+    rebuild_log_info("Step 2 complete!")
+}
+
+// Step 3: Demonstrate multiple dependencies
+fn target_step3() {
+    rebuild_log_info("Step 3: Target with multiple dependencies")
+
+    // Depend on both step1 and step2
+    out1 := rebuild_depend_on("step1")
+    out2 := rebuild_depend_on("step2")
+
+    rebuild_log_info("Got outputs from step1 and step2")
+    rebuild_log_info("Step 3 complete!")
+}
+
+// All target: Build everything
+fn target_all() {
+    rebuild_log_info("Building all integration test targets...")
+
+    // Build all steps in order
+    rebuild_depend_on("step1")
+    rebuild_depend_on("step2")
+    rebuild_depend_on("step3")
+
+    rebuild_log_info("All integration tests complete!")
+    rebuild_log_info("Dependency tracking works correctly!")
 }
