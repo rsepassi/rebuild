@@ -17,9 +17,10 @@
 
 // Define minimal type structures needed for glob without including conflicting headers
 // These match the UMKA type system but are defined locally to avoid name conflicts
+// Values from vendor/umka/src/umka_types.h: TYPE_DYNARRAY = 19, TYPE_STR = 20
 typedef enum {
-    UMKA_TYPE_DYNARRAY = 33,
-    UMKA_TYPE_STR = 34
+    UMKA_TYPE_DYNARRAY = 19,
+    UMKA_TYPE_STR = 20
 } UmkaTypeKind;
 
 typedef struct UmkaType {
@@ -144,6 +145,17 @@ static char* read_file_contents(const char* path) {
     return buffer;
 }
 
+// Forward declarations for FFI functions
+void umka_ffi_rebuild_depend_on(void* params, void* result);
+void umka_ffi_rebuild_sys(void* params, void* result);
+void umka_ffi_rebuild_register_dep(void* params, void* result);
+void umka_ffi_rebuild_glob(void* params, void* result);
+void umka_ffi_rebuild_hash_file(void* params, void* result);
+void umka_ffi_rebuild_depend_on_tree(void* params, void* result);
+void umka_ffi_rebuild_log_info(void* params, void* result);
+void umka_ffi_rebuild_log_debug(void* params, void* result);
+void umka_ffi_rebuild_register_target(void* params, void* result);
+
 // Load and compile UMKA script
 Umka* umka_load_script(const char* path) {
     if (!path) {
@@ -177,6 +189,7 @@ Umka* umka_load_script(const char* path) {
         "fn rebuild_register_dep*(path: str)\n"
         "fn rebuild_glob*(pattern: str): []str\n"
         "fn rebuild_hash_file*(path: str): str\n"
+        "fn rebuild_depend_on_tree*(path: str): str\n"
         "fn rebuild_log_info*(msg: str)\n"
         "fn rebuild_log_debug*(msg: str)\n"
         "fn rebuild_register_target*(name: str, fn_name: str)\n\n";
@@ -232,6 +245,13 @@ Umka* umka_load_script(const char* path) {
     if (!umkaAddFunc(umka, "rebuild_hash_file",
                      (UmkaExternFunc)umka_ffi_rebuild_hash_file)) {
         LOG_ERROR("Failed to register rebuild_hash_file FFI function");
+        umkaFree(umka);
+        return NULL;
+    }
+
+    if (!umkaAddFunc(umka, "rebuild_depend_on_tree",
+                     (UmkaExternFunc)umka_ffi_rebuild_depend_on_tree)) {
+        LOG_ERROR("Failed to register rebuild_depend_on_tree FFI function");
         umkaFree(umka);
         return NULL;
     }
@@ -568,23 +588,22 @@ void umka_ffi_rebuild_glob(void* params, void* result) {
     typedef UmkaDynArray(char*) StrArray;
     StrArray* result_array = (StrArray*)umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
 
-    // Initialize array structure
-    result_array->itemSize = sizeof(char*);
+    // Initialize array structure to NULL state before calling umkaMakeDynArray
+    result_array->itemSize = 0;
     result_array->internal = NULL;
     result_array->data = NULL;
 
-    if (count > 0) {
-        // Allocate array data
-        result_array->data = (char**)rebuild_malloc(sizeof(char*) * count);
+    // Allocate the dynamic array using UMKA's allocator
+    // This MUST be called before populating the data
+    umkaMakeDynArray(ctx->umka, result_array, (void*)&strArrayType, (int)count);
 
-        // Copy matched paths as UMKA strings
+    // Now populate the allocated array with matched paths
+    if (count > 0 && result_array->data) {
+        char** data = (char**)result_array->data;
         for (size_t i = 0; i < count; i++) {
-            result_array->data[i] = umkaMakeStr(ctx->umka, glob_result.gl_pathv[i]);
+            data[i] = umkaMakeStr(ctx->umka, glob_result.gl_pathv[i]);
         }
     }
-
-    // Initialize the dynamic array with the type
-    umkaMakeDynArray(ctx->umka, result_array, (void*)&strArrayType, (int)count);
 
     globfree(&glob_result);
 }
@@ -627,6 +646,52 @@ void umka_ffi_rebuild_hash_file(void* params, void* result) {
     result_slot->ptrVal = umkaMakeStr(ctx->umka, hex_hash);
 
     rebuild_free(hex_hash);
+}
+
+// FFI: rebuild_depend_on_tree(path: str): str
+void umka_ffi_rebuild_depend_on_tree(void* params, void* result) {
+    UmkaContext* ctx = umka_bridge_get_context();
+    if (!ctx || !ctx->current_recipe) {
+        LOG_ERROR("rebuild_depend_on_tree: No UMKA context or recipe");
+        UmkaStackSlot* result_slot = umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
+        result_slot->ptrVal = NULL;
+        return;
+    }
+
+    // Get path parameter
+    UmkaStackSlot* param_slot = umkaGetParam((UmkaStackSlot*)params, 0);
+    const char* path = (const char*)param_slot->ptrVal;
+
+    if (!path) {
+        LOG_ERROR("rebuild_depend_on_tree: NULL path");
+        UmkaStackSlot* result_slot = umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
+        result_slot->ptrVal = NULL;
+        return;
+    }
+
+    LOG_DEBUG("rebuild_depend_on_tree: %s", path);
+
+    // Hash the directory tree
+    Hash tree_hash;
+    if (!hash_tree(path, &tree_hash)) {
+        LOG_ERROR("rebuild_depend_on_tree: Failed to hash tree: %s", path);
+        UmkaStackSlot* result_slot = umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
+        result_slot->ptrVal = NULL;
+        return;
+    }
+
+    // Register the directory as a dependency
+    RebuildError err = recipe_add_dependency(ctx->current_recipe, path);
+    if (err != REBUILD_OK) {
+        LOG_ERROR("rebuild_depend_on_tree: Failed to register dependency: %s", path);
+        UmkaStackSlot* result_slot = umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
+        result_slot->ptrVal = NULL;
+        return;
+    }
+
+    // Return the path as UMKA string
+    UmkaStackSlot* result_slot = umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
+    result_slot->ptrVal = umkaMakeStr(ctx->umka, path);
 }
 
 // FFI: rebuild_log_info(msg: str)
