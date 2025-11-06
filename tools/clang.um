@@ -1,0 +1,173 @@
+// Clang compiler tool API for Rebuild
+// This module provides high-level functions for compiling C/C++ code with clang
+
+// Compile options structure
+type CompileOpts = struct {
+    output: str        // Output object file path (default: replace extension with .o)
+    includes: []str    // Include directories (-I flags)
+    defines: []str     // Preprocessor defines (-D flags)
+    flags: []str       // Additional compiler flags
+    dep_tracking: bool // Enable dependency tracking via depfile (default: true)
+}
+
+// Link options structure
+type LinkOpts = struct {
+    output: str        // Output binary/library path
+    libs: []str        // Libraries to link (-l flags)
+    lib_paths: []str   // Library search paths (-L flags)
+    flags: []str       // Additional linker flags
+}
+
+// Compile result structure
+type CompileResult = struct {
+    output: str        // Output object file path
+    deps_found: []str  // Discovered dependencies (from depfile)
+    exit_code: int     // Exit code from compiler
+    stdout: str        // Compiler stdout
+    stderr: str        // Compiler stderr
+}
+
+// Get the tool binary path (set by C bridge when tool is loaded)
+var bin: str
+
+// Initialize - called when tool is loaded
+fn init(binary_path: str) {
+    bin = binary_path
+}
+
+// Compile a single source file
+// src: path to source file (.c, .cc, .cpp, etc.)
+// opts: compilation options
+fn compile(src: str, opts: CompileOpts = {}): CompileResult {
+    var args: []str
+    args = append(args, bin)
+    args = append(args, "-c")
+    args = append(args, src)
+
+    // Determine output path
+    var output: str
+    if opts.output != "" {
+        output = opts.output
+    } else {
+        // Replace extension with .o
+        output = src
+        // Find last dot
+        var dot_idx: int = -1
+        for i := 0; i < len(output); i++ {
+            if output[i] == '.' {
+                dot_idx = i
+            }
+        }
+        if dot_idx >= 0 {
+            output = slice(output, 0, dot_idx) + ".o"
+        } else {
+            output = output + ".o"
+        }
+    }
+
+    // Add output flag
+    args = append(args, "-o")
+    args = append(args, output)
+
+    // Add include directories
+    for i := 0; i < len(opts.includes); i++ {
+        args = append(args, "-I" + opts.includes[i])
+    }
+
+    // Add defines
+    for i := 0; i < len(opts.defines); i++ {
+        args = append(args, "-D" + opts.defines[i])
+    }
+
+    // Setup dependency tracking (default: enabled)
+    var dep_tracking: bool = true
+    if valid(opts.dep_tracking) {
+        dep_tracking = opts.dep_tracking
+    }
+
+    var depfile: str
+    var deps_found: []str
+    if dep_tracking {
+        depfile = output + ".d"
+        args = append(args, "-MD")
+        args = append(args, "-MF")
+        args = append(args, depfile)
+    }
+
+    // Add user flags
+    for i := 0; i < len(opts.flags); i++ {
+        args = append(args, opts.flags[i])
+    }
+
+    // Execute compiler
+    var result: any = sys(args)
+
+    // Parse dependency file and register dependencies
+    if dep_tracking && result.exit_code == 0 {
+        var depinfo: any = parse_depfile(depfile)
+        if valid(depinfo) && valid(depinfo.inputs) {
+            deps_found = depinfo.inputs
+            // Register each dependency
+            for i := 0; i < len(deps_found); i++ {
+                register_dep(deps_found[i])
+            }
+        }
+    }
+
+    return {
+        output: output,
+        deps_found: deps_found,
+        exit_code: result.exit_code,
+        stdout: result.stdout,
+        stderr: result.stderr
+    }
+}
+
+// Link object files into executable or shared library
+// objs: list of object files to link
+// opts: link options
+fn link(objs: []str, opts: LinkOpts = {}): any {
+    var args: []str
+    args = append(args, bin)
+
+    // Add object files
+    for i := 0; i < len(objs); i++ {
+        args = append(args, objs[i])
+    }
+
+    // Add output
+    if opts.output != "" {
+        args = append(args, "-o")
+        args = append(args, opts.output)
+    }
+
+    // Add library search paths
+    for i := 0; i < len(opts.lib_paths); i++ {
+        args = append(args, "-L" + opts.lib_paths[i])
+    }
+
+    // Add libraries
+    for i := 0; i < len(opts.libs); i++ {
+        args = append(args, "-l" + opts.libs[i])
+    }
+
+    // Add user flags
+    for i := 0; i < len(opts.flags); i++ {
+        args = append(args, opts.flags[i])
+    }
+
+    // Execute linker
+    return sys(args)
+}
+
+// Create a static library from object files
+// Uses ar internally (calls deptool to get ar)
+// objs: list of object files
+// output: output library path (.a file)
+fn static_lib(objs: []str, output: str): any {
+    // Get ar tool
+    var ar: any = deptool("ar")
+
+    // Use ar to create static library
+    return ar.create(output, objs)
+}

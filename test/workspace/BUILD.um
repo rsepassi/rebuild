@@ -1,0 +1,19 @@
+// Simple BUILD.um for testing register_targets() function
+// Note: External FFI functions are imported from rebuild_ffi.um
+
+// Helper function
+fn target(name: str, fn_name: str) {
+    rebuild_ffi::rebuild_register_target(name, fn_name)
+}
+
+// Main registration function
+fn register_targets() {
+    rebuild_ffi::rebuild_log_info("Registering targets...")
+    target("test:simple", "target_test_simple")
+    rebuild_ffi::rebuild_log_info("Targets registered!")
+}
+
+// Simple test target
+fn target_test_simple() {
+    rebuild_ffi::rebuild_log_info("Running simple test target!")
+}
