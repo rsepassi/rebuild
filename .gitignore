@@ -1,7 +1,20 @@
-# Build outputs
-build/*.o
-build/*.d
+# Build outputs - all build artifacts
+*.o
+*.d
+*.a
+*.so
+*.dylib
+build/
 rebuild
+
+# Bootstrap build artifacts
+bootstrap/build/
+
+# Vendor build artifacts
+vendor/libuv/.libs/
+vendor/libuv/src/**/*.o
+vendor/umka/build/
+vendor/umka/obj/
 
 # Test executables
 test/test_*
