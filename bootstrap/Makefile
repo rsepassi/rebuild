@@ -49,8 +49,8 @@ SRC_FILES = $(wildcard $(SRC_DIR)/*.c)
 # Object files (placed in build directory)
 OBJ_FILES = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRC_FILES))
 
-# Output binary
-REBUILD_BIN = rebuild
+# Output binary (goes to ../build/ directory, not bootstrap/)
+REBUILD_BIN = ../build/rebuild
 
 # ============================================================================
 # Main Targets
@@ -90,8 +90,9 @@ help:
 
 $(REBUILD_BIN): $(BUILD_DIR) $(LIBUV_LIB) $(UMKA_LIB) $(BLAKE2_OBJ) $(OBJ_FILES)
 	@echo "Linking $@..."
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -o $@ $(OBJ_FILES) $(BLAKE2_OBJ) $(UMKA_LIB) $(LIBUV_LIB) $(LDFLAGS)
-	@echo "Build complete: ./$@"
+	@echo "Build complete: $@"
 
 # ============================================================================
 # Vendored Dependencies

@@ -27,4 +27,9 @@ bool hash_file(const char* path, Hash* out);
 // Hash arbitrary data
 void hash_data(const void* data, size_t len, Hash* out);
 
+// Hash a directory tree recursively
+// Computes a hash that includes all file contents and directory structure
+// Returns true on success, false on I/O error
+bool hash_tree(const char* path, Hash* out);
+
 #endif // REBUILD_HASH_H
