@@ -1,0 +1,80 @@
+// AR archiver tool API for Rebuild
+// This module provides a simple wrapper around the ar command for creating static libraries
+
+// Get the tool binary path (set by C bridge when tool is loaded)
+var bin: str
+
+// Initialize - called when tool is loaded
+fn init(binary_path: str) {
+    bin = binary_path
+}
+
+// Create a static library from object files
+// output: path to output library (.a file)
+// objs: list of object files to include
+// Returns the result from sys() call
+fn create(output: str, objs: []str): any {
+    var args: []str
+    args = append(args, bin)
+
+    // Use 'rcs' flags:
+    // r - insert files into archive (replace if exist)
+    // c - create archive if it doesn't exist
+    // s - create/update archive index (like running ranlib)
+    args = append(args, "rcs")
+
+    // Add output archive path
+    args = append(args, output)
+
+    // Add all object files
+    for i := 0; i < len(objs); i++ {
+        args = append(args, objs[i])
+    }
+
+    // Execute ar
+    return sys(args)
+}
+
+// Update an existing archive by adding/replacing object files
+// archive: path to existing archive
+// objs: list of object files to add/replace
+fn update(archive: str, objs: []str): any {
+    var args: []str
+    args = append(args, bin)
+    args = append(args, "rs")
+    args = append(args, archive)
+
+    for i := 0; i < len(objs); i++ {
+        args = append(args, objs[i])
+    }
+
+    return sys(args)
+}
+
+// Extract object files from an archive
+// archive: path to archive
+// output_dir: directory to extract to (default: current directory)
+fn extract(archive: str, output_dir: str = ""): any {
+    var args: []str
+    args = append(args, bin)
+    args = append(args, "x")
+    args = append(args, archive)
+
+    // Execute with optional working directory
+    if output_dir != "" {
+        return sys(args, {cwd: output_dir})
+    } else {
+        return sys(args)
+    }
+}
+
+// List contents of an archive
+// archive: path to archive
+fn list(archive: str): any {
+    var args: []str
+    args = append(args, bin)
+    args = append(args, "t")
+    args = append(args, archive)
+
+    return sys(args)
+}
