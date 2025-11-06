@@ -1,0 +1,88 @@
+// Example BUILD.um file demonstrating the target registration system
+//
+// This file shows how to define build targets using the target() helper function.
+// The target() function calls rebuild_register_target() which is implemented in
+// the C FFI layer and registers targets with the TargetRegistry.
+//
+// Usage:
+//   1. Create a BUILD.um file in your project
+//   2. Define a register_targets() function
+//   3. Call target(name, fn) for each target
+//   4. The fn parameter is the name of the function to call when building the target
+
+// Helper function to register targets
+// This calls the FFI function rebuild_register_target(name, function_name)
+fn target(name: str, fn_name: str) {
+    rebuild_register_target(name, fn_name)
+}
+
+// Main registration function - called by the build system
+fn register_targets() {
+    // Register a binary target
+    target("rebuild", "target_rebuild")
+
+    // Register library targets
+    target("lib:common", "target_lib_common")
+    target("lib:storage", "target_lib_storage")
+
+    // Register test targets
+    target("test:unit", "target_test_unit")
+    target("test:integration", "target_test_integration")
+}
+
+// Example target implementation functions
+// These are called by the scheduler when the target needs to be built
+
+fn target_rebuild() {
+    rebuild_log_info("Building rebuild binary...")
+
+    // Example build steps:
+    // 1. Compile C sources
+    // 2. Link binary
+    // 3. Output to output directory
+
+    rebuild_log_info("rebuild binary built successfully")
+}
+
+fn target_lib_common() {
+    rebuild_log_info("Building common library...")
+
+    // Example:
+    // - Compile common.c, buffer.c, map.c, etc.
+    // - Create static library
+
+    rebuild_log_info("common library built successfully")
+}
+
+fn target_lib_storage() {
+    rebuild_log_info("Building storage library...")
+
+    // Example:
+    // - Depend on lib:common
+    // - Compile storage.c, trace.c
+    // - Create static library
+
+    rebuild_log_info("storage library built successfully")
+}
+
+fn target_test_unit() {
+    rebuild_log_info("Running unit tests...")
+
+    // Example:
+    // - Depend on test binaries
+    // - Execute tests
+    // - Report results
+
+    rebuild_log_info("Unit tests passed")
+}
+
+fn target_test_integration() {
+    rebuild_log_info("Running integration tests...")
+
+    // Example:
+    // - Depend on rebuild binary
+    // - Run integration test suite
+    // - Report results
+
+    rebuild_log_info("Integration tests passed")
+}
