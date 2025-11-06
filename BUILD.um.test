@@ -1,10 +1,17 @@
-// BUILD.um - Simple test BUILD.um to verify FFI functions work
+// BUILD.um.test - Simple test BUILD.um to verify FFI functions work
 //
 // This is a minimal BUILD.um file to test the basic FFI functionality
-// FFI functions are automatically declared by the rebuild system
+
+// FFI function declarations (these are imported automatically by the bridge)
+fn rebuild_register_target(name: str, fn_name: str)
+fn rebuild_log_info(msg: str)
+fn rebuild_log_debug(msg: str)
+fn rebuild_sys(args: []str): int
+fn rebuild_glob(pattern: str): []str
+fn rebuild_hash_file(path: str): str
+fn rebuild_register_dep(path: str)
 
 // Helper function to register targets
-// Uses FFI function rebuild_register_target which is automatically declared
 fn target(name: str, fn_name: str) {
     rebuild_register_target(name, fn_name)
 }
@@ -45,15 +52,17 @@ fn target_test_glob() {
     files := rebuild_glob("src/*.c")
     rebuild_log_info("Found some source files")
 
-    // Log first 3 filenames
-    count := len(files)
-    if count > 3 {
-        count = 3
-    }
-
-    for i := 0; i < count; i++ {
+    // Log some filenames
+    for i := 0; i < min(5, len(files)); i++ {
         rebuild_log_info("  - " + files[i])
     }
 
     rebuild_log_info("glob() test passed!")
+}
+
+fn min(a: int, b: int): int {
+    if a < b {
+        return a
+    }
+    return b
 }
