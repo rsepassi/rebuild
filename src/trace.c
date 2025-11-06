@@ -116,17 +116,33 @@ bool trace_validate(const Trace* t) {
         const char* path = t->dep_paths[i];
         const Hash* expected_hash = &t->dep_hashes[i];
 
-        // Check if file exists
+        // Check if dependency exists
         struct stat st;
         if (stat(path, &st) != 0) {
             LOG_DEBUG("trace_validate: dependency missing: %s", path);
             return false;
         }
 
-        // Hash the file and compare
+        // Hash the dependency (file or directory tree)
         Hash actual_hash;
-        if (!hash_file(path, &actual_hash)) {
-            LOG_WARN("trace_validate: failed to hash dependency: %s", path);
+        bool hash_success;
+
+        if (S_ISDIR(st.st_mode)) {
+            // Directory: use hash_tree() for deterministic recursive hashing
+            hash_success = hash_tree(path, &actual_hash);
+            if (!hash_success) {
+                LOG_WARN("trace_validate: failed to hash directory dependency: %s", path);
+                return false;
+            }
+        } else if (S_ISREG(st.st_mode)) {
+            // Regular file: use hash_file()
+            hash_success = hash_file(path, &actual_hash);
+            if (!hash_success) {
+                LOG_WARN("trace_validate: failed to hash file dependency: %s", path);
+                return false;
+            }
+        } else {
+            LOG_WARN("trace_validate: dependency is neither file nor directory: %s", path);
             return false;
         }
 
