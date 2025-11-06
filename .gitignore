@@ -1,21 +1,23 @@
 # Build outputs
-*.o
-*.a
-*.so
+build/*.o
+build/*.d
 rebuild
 
-# Local build artifacts and runtime directories
-.rebuild/
-storage/
-outputs/
-tmp/
+# Test executables
+test/test_*
+!test/test_*.c
+
+# Backup files
+*.bak
+*.backup
+*.test
+*~
 
 # Editor files
-*.swp
-*.swo
-*~
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # OS files
 .DS_Store
