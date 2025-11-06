@@ -15,6 +15,30 @@
 // Include UMKA API
 #include "umka_api.h"
 
+// Define minimal type structures needed for glob without including conflicting headers
+// These match the UMKA type system but are defined locally to avoid name conflicts
+typedef enum {
+    UMKA_TYPE_DYNARRAY = 33,
+    UMKA_TYPE_STR = 34
+} UmkaTypeKind;
+
+typedef struct UmkaType {
+    int kind;                    // UmkaTypeKind
+    int block;
+    struct UmkaType *base;       // For arrays/pointers, points to element type
+    int numItems;
+    bool isExprList;
+    bool isVariadicParamList;
+    bool isEnum;
+    void *typeIdent;
+    union {
+        void **field;            // For structures/interfaces/closures
+        void **enumConst;        // For enumerations
+        char sig[64];            // For functions (Signature struct)
+    };
+    struct UmkaType *next;
+} UmkaType;
+
 // Thread-local storage for UMKA context
 static pthread_key_t tls_context_key;
 static pthread_once_t tls_init_once = PTHREAD_ONCE_INIT;
@@ -514,16 +538,39 @@ void umka_ffi_rebuild_glob(void* params, void* result) {
     size_t count = (ret == GLOB_NOMATCH) ? 0 : glob_result.gl_pathc;
     LOG_DEBUG("rebuild_glob: found %zu matches", count);
 
-    // Create UMKA dynamic array for string results
-    typedef UmkaDynArray(char*) StrArray;
+    // Create type structures for []str
+    static UmkaType strType = {
+        .kind = UMKA_TYPE_STR,
+        .block = 0,
+        .base = NULL,
+        .numItems = 0,
+        .isExprList = false,
+        .isVariadicParamList = false,
+        .isEnum = false,
+        .typeIdent = NULL,
+        .field = NULL,  // Initialize union field
+        .next = NULL
+    };
 
-    // Get the result slot area where we'll write the array structure
-    // For dynamic arrays, the result area has space for the full array structure
+    static UmkaType strArrayType = {
+        .kind = UMKA_TYPE_DYNARRAY,
+        .block = 0,
+        .base = &strType,
+        .numItems = 0,
+        .isExprList = false,
+        .isVariadicParamList = false,
+        .isEnum = false,
+        .typeIdent = NULL,
+        .field = NULL,  // Initialize union field
+        .next = NULL
+    };
+
+    typedef UmkaDynArray(char*) StrArray;
     StrArray* result_array = (StrArray*)umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
 
-    // Initialize the array structure
+    // Initialize array structure
     result_array->itemSize = sizeof(char*);
-    result_array->internal = NULL;  // Will be set by umkaMakeDynArray
+    result_array->internal = NULL;
     result_array->data = NULL;
 
     if (count > 0) {
@@ -536,8 +583,8 @@ void umka_ffi_rebuild_glob(void* params, void* result) {
         }
     }
 
-    // Initialize the dynamic array properly
-    umkaMakeDynArray(ctx->umka, result_array, NULL, (int)count);
+    // Initialize the dynamic array with the type
+    umkaMakeDynArray(ctx->umka, result_array, (void*)&strArrayType, (int)count);
 
     globfree(&glob_result);
 }
