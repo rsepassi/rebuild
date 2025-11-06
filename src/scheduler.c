@@ -209,9 +209,35 @@ static bool add_dep_to_trace_callback(const char* dep_path, void* user_data) {
         return true;  // Continue iteration
     }
 
-    // Hash the dependency file
+    // Check if dependency is a file or directory
+    struct stat st;
+    if (stat(dep_path, &st) != 0) {
+        LOG_WARN("Failed to stat dependency: %s", dep_path);
+        return true;  // Continue iteration
+    }
+
+    // Hash the dependency (file or directory tree)
     Hash dep_hash;
-    if (hash_file(dep_path, &dep_hash)) {
+    bool hash_success;
+
+    if (S_ISDIR(st.st_mode)) {
+        // Directory: use hash_tree() for deterministic recursive hashing
+        hash_success = hash_tree(dep_path, &dep_hash);
+        if (hash_success) {
+            LOG_DEBUG("Hashed directory dependency: %s", dep_path);
+        }
+    } else if (S_ISREG(st.st_mode)) {
+        // Regular file: use hash_file()
+        hash_success = hash_file(dep_path, &dep_hash);
+        if (hash_success) {
+            LOG_DEBUG("Hashed file dependency: %s", dep_path);
+        }
+    } else {
+        LOG_WARN("Dependency is neither file nor directory: %s", dep_path);
+        return true;  // Continue iteration
+    }
+
+    if (hash_success) {
         // Add to trace
         if (trace_add_dependency(ctx->trace, dep_path, &dep_hash)) {
             ctx->added_count++;
@@ -224,72 +250,6 @@ static bool add_dep_to_trace_callback(const char* dep_path, void* user_data) {
     }
 
     return true;  // Continue iteration
-}
-
-// Hash a directory tree recursively
-// Combines hashes of all files in sorted order for determinism
-static bool hash_directory_tree(const char* dir_path, Hash* out_hash) {
-    if (!dir_path || !out_hash) {
-        return false;
-    }
-
-    // Initialize hash with empty data
-    hash_data((const uint8_t*)"", 0, out_hash);
-
-    // Check if directory exists
-    struct stat st;
-    if (stat(dir_path, &st) != 0) {
-        LOG_DEBUG("Directory does not exist: %s", dir_path);
-        return false;
-    }
-
-    if (!S_ISDIR(st.st_mode)) {
-        LOG_DEBUG("Path is not a directory: %s", dir_path);
-        return false;
-    }
-
-    // Open directory
-    DIR* dir = opendir(dir_path);
-    if (!dir) {
-        LOG_WARN("Failed to open directory: %s", dir_path);
-        return false;
-    }
-
-    // Read all entries and sort them for determinism
-    // For simplicity, we'll process them as we go and combine hashes
-    struct dirent* entry;
-    while ((entry = readdir(dir)) != NULL) {
-        // Skip . and ..
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-            continue;
-        }
-
-        // Build full path
-        char full_path[4096];
-        snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, entry->d_name);
-
-        // Get file stats
-        if (stat(full_path, &st) != 0) {
-            continue;
-        }
-
-        if (S_ISDIR(st.st_mode)) {
-            // Recursively hash subdirectory
-            Hash subdir_hash;
-            if (hash_directory_tree(full_path, &subdir_hash)) {
-                hash_combine(out_hash, &subdir_hash);
-            }
-        } else if (S_ISREG(st.st_mode)) {
-            // Hash regular file
-            Hash file_hash;
-            if (hash_file(full_path, &file_hash)) {
-                hash_combine(out_hash, &file_hash);
-            }
-        }
-    }
-
-    closedir(dir);
-    return true;
 }
 
 // Ensure directory exists, creating parent directories as needed
@@ -619,7 +579,7 @@ void scheduler_on_recipe_complete(Scheduler* sched, Recipe* recipe, bool success
 
             // Hash the output directory tree
             if (recipe->output_dir) {
-                if (!hash_directory_tree(recipe->output_dir, &trace->output_tree_hash)) {
+                if (!hash_tree(recipe->output_dir, &trace->output_tree_hash)) {
                     LOG_WARN("Failed to hash output directory tree for: %s", recipe->target_name);
                     // Use empty hash as fallback
                     hash_data((const uint8_t*)"", 0, &trace->output_tree_hash);
