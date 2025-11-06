@@ -61,7 +61,7 @@ void umka_bridge_cleanup(void);
 
 // Set thread-local context for current thread
 // Must be called before executing any UMKA code in a thread
-void umka_bridge_set_context(Recipe* recipe, Scheduler* scheduler);
+void umka_bridge_set_context(Recipe* recipe, Scheduler* scheduler, Umka* umka);
 
 // Get thread-local context for current thread
 // Returns NULL if no context has been set

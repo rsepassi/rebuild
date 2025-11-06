@@ -251,15 +251,16 @@ int main(int argc, char** argv) {
     // This populates the registry by calling rebuild_register_target() for each target
     UmkaFuncContext register_fn;
 
-    // First try with NULL module name (current module)
+    // Get the register_targets function from the main module (NULL module name)
+    // The BUILD.um was added with NULL as module name, making it the main module
     if (!umkaGetFunc(umka, NULL, "register_targets", &register_fn)) {
-        // Try with the build file path as module name
-        if (!umkaGetFunc(umka, build_file, "register_targets", &register_fn)) {
-            LOG_ERROR("BUILD.um must define a register_targets() function");
-            LOG_ERROR("Tried module names: NULL and '%s'", build_file);
-            exit_code = REBUILD_ERROR_PARSE;
-            goto cleanup;
+        LOG_ERROR("BUILD.um must define a register_targets() function");
+        UmkaError* error = umkaGetError(umka);
+        if (error && error->msg) {
+            LOG_ERROR("UMKA error: %s", error->msg);
         }
+        exit_code = REBUILD_ERROR_PARSE;
+        goto cleanup;
     }
 
     LOG_DEBUG("Found register_targets() function");
