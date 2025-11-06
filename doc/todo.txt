@@ -66,8 +66,9 @@ Self-Hosting
     - Build 3: build/rebuild rebuild → build/rebuild2
     - Verify: build/rebuild and build/rebuild2 are bit-identical
 
-[ ] Document self-hosting process
-    - Create doc/self-hosting.txt
+[ ] Document bootstrap and self-hosting process
+    - Create doc/bootstrap.txt
+    - Explain bootstrap
     - Explain three-builds test
     - Document expected behavior
 
@@ -105,23 +106,11 @@ Testing & Verification
 Documentation
 ================================================================================
 
-[ ] Create doc/quickstart.txt
-    - Getting started guide
-    - First build instructions
-    - Basic BUILD.um examples
-
-[ ] Create doc/bootstrap.txt
-    - Bootstrap build process
-    - Vendor dependency info
-    - Build from clean checkout
-
-[ ] Create doc/build-files.txt
+[ ] Create doc/user-guide.txt
     - Writing BUILD.um files
     - Target registration
     - Using FFI functions
     - Tool API usage
-
-[ ] Create doc/api-reference.txt
     - All FFI functions documented
     - Parameters and return types
     - Usage examples
@@ -135,45 +124,15 @@ Documentation
 [ ] Create README.md
     - Project overview
     - Quick build instructions
-    - Link to documentation
-    - License info
+    - Link to user guide
+    - Getting started guide
+    - First build instructions
+    - Basic BUILD.um examples
 
 ================================================================================
-Future Enhancements (Post-MVP)
+Future Enhancements
 ================================================================================
 
 [ ] Remote caching support
-[ ] Distributed builds
-[ ] Build profiling and visualization
-[ ] Incremental linking
+[ ] Build profiling
 [ ] Watch mode for continuous builds
-[ ] Parallel trace validation
-[ ] Speculative execution
-[ ] Cache size management and GC
-[ ] Additional tool APIs (python, cmake, pkg_config, protobuf)
-
-================================================================================
-Current Blockers
-================================================================================
-
-🔴 sys() array passing broken - cannot execute commands
-🟡 Bootstrap build untested - may have issues
-🟡 Self-hosting not verified
-
-================================================================================
-Success Criteria
-================================================================================
-
-✓ Vendor dependencies copied and building
-✓ Bootstrap Makefile created
-✓ Build artifacts organized in build/
-- Bootstrap build works from clean checkout
-- sys() executes commands correctly
-- Glob patterns work (*.c, **/*.h)
-- Self-hosting: build → rebuild → rebuild → identical binaries
-- Integration tests pass
-- Trace introspection working
-- Verbose logging functional
-- Basic documentation complete
-
-================================================================================
