@@ -377,7 +377,7 @@ void umka_ffi_rebuild_depend_on(void* params, void* result) {
     }
 }
 
-// FFI: rebuild_sys(args: []str, argc: int): int
+// FFI: rebuild_sys(args: []str): int
 void umka_ffi_rebuild_sys(void* params, void* result) {
     UmkaContext* ctx = umka_bridge_get_context();
     if (!ctx || !ctx->scheduler || !ctx->current_recipe) {
@@ -387,16 +387,11 @@ void umka_ffi_rebuild_sys(void* params, void* result) {
         return;
     }
 
-    // Get args array parameter (first parameter)
-    UmkaStackSlot* args_slot = umkaGetParam((UmkaStackSlot*)params, 0);
-
-    // Debug logging
-    LOG_DEBUG("rebuild_sys: args_slot->ptrVal = %p", args_slot->ptrVal);
-    LOG_DEBUG("rebuild_sys: args_slot->intVal = %lld", (long long)args_slot->intVal);
-
     // UMKA dynamic array structure for []str
     typedef UmkaDynArray(char*) StrArray;
-    StrArray* args_array = (StrArray*)args_slot->ptrVal;
+
+    // Get args array parameter - dynamic arrays are stored directly in stack slots
+    StrArray* args_array = (StrArray*)umkaGetParam((UmkaStackSlot*)params, 0);
 
     if (!args_array) {
         LOG_ERROR("rebuild_sys: NULL arguments array pointer");
@@ -405,14 +400,12 @@ void umka_ffi_rebuild_sys(void* params, void* result) {
         return;
     }
 
-    LOG_DEBUG("rebuild_sys: args_array->type = %p", args_array->type);
-    LOG_DEBUG("rebuild_sys: args_array->itemSize = %lld", (long long)args_array->itemSize);
-
-    // Get array length first
+    // Get array length
     int argc = umkaGetDynArrayLen(args_array);
 
-    LOG_DEBUG("rebuild_sys: args_array = %p, args_array->data = %p, argc = %d",
-              args_array, args_array ? args_array->data : NULL, argc);
+    LOG_DEBUG("rebuild_sys: args_array = %p, internal = %p, itemSize = %lld, data = %p, argc = %d",
+              args_array, args_array->internal, (long long)args_array->itemSize,
+              args_array->data, argc);
 
     if (argc <= 0 || !args_array->data) {
         LOG_ERROR("rebuild_sys: Invalid or empty arguments array (argc=%d, data=%p)",
@@ -523,9 +516,14 @@ void umka_ffi_rebuild_glob(void* params, void* result) {
 
     // Create UMKA dynamic array for string results
     typedef UmkaDynArray(char*) StrArray;
-    StrArray* result_array = (StrArray*)rebuild_malloc(sizeof(StrArray));
+
+    // Get the result slot area where we'll write the array structure
+    // For dynamic arrays, the result area has space for the full array structure
+    StrArray* result_array = (StrArray*)umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
+
+    // Initialize the array structure
     result_array->itemSize = sizeof(char*);
-    result_array->type = NULL;  // Will be set by UMKA
+    result_array->internal = NULL;  // Will be set by umkaMakeDynArray
     result_array->data = NULL;
 
     if (count > 0) {
@@ -542,10 +540,6 @@ void umka_ffi_rebuild_glob(void* params, void* result) {
     umkaMakeDynArray(ctx->umka, result_array, NULL, (int)count);
 
     globfree(&glob_result);
-
-    // Return the array
-    UmkaStackSlot* result_slot = umkaGetResult((UmkaStackSlot*)params, (UmkaStackSlot*)result);
-    result_slot->ptrVal = result_array;
 }
 
 // FFI: rebuild_hash_file(path: str): str
