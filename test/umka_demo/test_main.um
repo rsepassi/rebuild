@@ -1,8 +1,0 @@
-// Main script that imports FFI declarations
-
-import "ffi.um"
-
-// Function that we'll call from C
-fn test_function() {
-    ffi::print_message("Hello from UMKA test_function!")
-}
