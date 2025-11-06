@@ -1,0 +1,22 @@
+# Build outputs
+*.o
+*.a
+*.so
+rebuild
+
+# Local build artifacts and runtime directories
+.rebuild/
+storage/
+outputs/
+tmp/
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

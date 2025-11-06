@@ -1,0 +1,116 @@
+// BUILD.um - Self-hosting build definition for Rebuild
+//
+// This BUILD.um file allows rebuild to build itself after the initial bootstrap.
+// It compiles vendored dependencies (libuv, umka, blake2) and all rebuild sources,
+// then links them into the rebuild binary.
+
+//
+// External FFI function declarations
+// These functions are provided by the Rebuild C runtime
+//
+fn rebuild_register_target(name: str, fn_name: str)
+fn rebuild_log_info(msg: str)
+fn rebuild_log_debug(msg: str)
+fn rebuild_depend_on(target: str): str
+fn rebuild_register_dep(path: str)
+fn rebuild_sys(args: []str, argc: int): int
+fn rebuild_glob(pattern: str): []str
+fn rebuild_hash_file(path: str): str
+
+// Helper function to register targets (calls FFI)
+fn target(name: str, fn_name: str) {
+    rebuild_register_target(name, fn_name)
+}
+
+// Main registration function - called by build system
+fn register_targets() {
+    target("rebuild", "target_rebuild")
+}
+
+// Build the rebuild binary
+fn target_rebuild() {
+    rebuild_log_info("Building rebuild...")
+
+    // Build vendored dependencies
+    libuv_lib := build_libuv()
+    umka_lib := build_umka()
+    blake2_obj := build_blake2()
+
+    // Get clang compiler tool
+    cc := deptool("clang")
+
+    // Compile all rebuild source files
+    // sources := rebuild_glob("src/*.c")
+    // objs := []str{}
+
+    // TODO: Implement full compilation logic
+    // for i := 0; i < len(sources); i++ {
+    //     src := sources[i]
+    //     rebuild_log_info("  Compiling " + src + "...")
+    //     ...
+    // }
+
+    rebuild_log_info("rebuild binary build complete (placeholder)")
+}
+
+// Build libuv static library
+fn build_libuv(): str {
+    rebuild_log_info("Building libuv...")
+
+    libuv_dir := "vendor/libuv"
+    libuv_lib := libuv_dir + "/.libs/libuv.a"
+
+    // Check if already built (for now, just rebuild always)
+    // TODO: use cached_run() or check timestamps
+
+    // TODO: Run build commands using rebuild_sys
+    // autogen_result := rebuild_sys([]str{"./autogen.sh"}, 1)
+    // configure_result := rebuild_sys([]str{"./configure", "--disable-shared"}, 2)
+    // make_result := rebuild_sys([]str{"make", "-j8"}, 2)
+
+    // TODO: Register dependencies using rebuild_glob and rebuild_register_dep
+    // libuv_sources := rebuild_glob(libuv_dir + "/src/**/*.c")
+    // for i := 0; i < len(libuv_sources); i++ {
+    //     rebuild_register_dep(libuv_sources[i])
+    // }
+
+    rebuild_log_info("libuv built: " + libuv_lib)
+    return libuv_lib
+}
+
+// Build umka static library
+fn build_umka(): str {
+    rebuild_log_info("Building umka...")
+
+    umka_dir := "vendor/umka"
+    umka_lib := umka_dir + "/build/libumka.a"
+
+    // TODO: Run build commands using rebuild_sys
+    // make_result := rebuild_sys([]str{"make", "static", "-j8"}, 3)
+
+    // TODO: Register dependencies using rebuild_glob and rebuild_register_dep
+    // umka_sources := rebuild_glob(umka_dir + "/src/*.c")
+    // for i := 0; i < len(umka_sources); i++ {
+    //     rebuild_register_dep(umka_sources[i])
+    // }
+
+    rebuild_log_info("umka built: " + umka_lib)
+    return umka_lib
+}
+
+// Build blake2 object file
+fn build_blake2(): str {
+    rebuild_log_info("Building blake2...")
+
+    blake2_src := "vendor/blake2/blake2b.c"
+    blake2_obj := "vendor/blake2/blake2b.o"
+
+    // TODO: Get clang compiler tool and compile
+    // cc := deptool("clang")
+    // result := cc.compile(blake2_src, ...)
+
+    rebuild_log_info("  blake2 build placeholder")
+
+    rebuild_log_info("blake2 built: " + blake2_obj)
+    return blake2_obj
+}
