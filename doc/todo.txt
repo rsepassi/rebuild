@@ -1,0 +1,179 @@
+================================================================================
+REBUILD TODO LIST
+================================================================================
+
+IMPORTANT RULES:
+- This file MUST be kept up to date
+- ALL todos go in this doc, NOT in code comments
+- Keep todos CONCISE - brief actionable items only
+- Update this file as work progresses
+
+================================================================================
+CRITICAL - Blocking Functionality
+================================================================================
+
+[ ] Fix UMKA array passing (rebuild_sys)
+    - Issue: sys() receives empty arrays from UMKA (argc=0, data=NULL)
+    - Location: src/umka_bridge.c:380-445
+    - Blocks: Command execution from BUILD.um scripts
+
+[ ] Test bootstrap build from clean state
+    - Run: make -C bootstrap
+    - Verify all vendor deps compile
+    - Ensure binary works: bootstrap/rebuild --version
+
+[ ] Ensure all build artifacts go to build/ directory
+    - Object files: build/*.o
+    - Dependency files: build/*.d
+    - Final binary: build/rebuild (copied to root)
+    - Update Makefile if needed
+
+================================================================================
+Core Features
+================================================================================
+
+[ ] Implement glob patterns
+    - Single-star: src/*.c (one directory level)
+    - Double-star: src/**/*.c (recursive)
+    - Location: src/umka_bridge.c:506
+    - Use existing FFI function stub
+
+[ ] Add directory tree dependencies
+    - New API: rebuild_depend_on_tree(path: str): str
+    - Implement recursive directory hashing
+    - Update trace system for directory tracking
+    - Add FFI function to umka_bridge.c
+
+[ ] Test tool system verification
+    - Verify tools/clang.um works with real builds
+    - Verify tools/ar.um works
+    - Test depfile parsing and registration
+    - Test tool binary hash invalidation
+    - Test tool module hash invalidation
+
+================================================================================
+Self-Hosting
+================================================================================
+
+[ ] Enhance BUILD.um for self-hosting
+    - Add vendor dependency targets (libuv, umka, blake2)
+    - Add rebuild binary target
+    - Test: bootstrap/rebuild rebuild → build/rebuild
+
+[ ] Three-builds verification test
+    - Build 1: make -C bootstrap → bootstrap/rebuild
+    - Build 2: bootstrap/rebuild rebuild → build/rebuild
+    - Build 3: build/rebuild rebuild → build/rebuild2
+    - Verify: build/rebuild and build/rebuild2 are bit-identical
+
+[ ] Document self-hosting process
+    - Create doc/self-hosting.txt
+    - Explain three-builds test
+    - Document expected behavior
+
+================================================================================
+Testing & Verification
+================================================================================
+
+[ ] Integration tests (test/workspace/)
+    - Ensure sys() tests pass (blocked by array fix)
+    - Add glob pattern tests
+    - Add directory tree dependency tests
+    - Test cache invalidation scenarios
+    - Test parallel builds
+
+[ ] Verbose build logging
+    - Add --verbose flag to rebuild
+    - Log all FFI calls
+    - Log trace validation steps
+    - Log dependency resolution
+
+[ ] Build trace introspection
+    - Add command: rebuild trace <target>
+    - Show full dependency chain
+    - Show why target was rebuilt
+    - Show cached vs rebuilt status
+    - Display hash values for deps
+
+[ ] Test trace system thoroughly
+    - Cache hits with unchanged deps
+    - Cache misses with changed deps
+    - Early cutoff optimization
+    - Trace persistence across runs
+
+================================================================================
+Documentation
+================================================================================
+
+[ ] Create doc/quickstart.txt
+    - Getting started guide
+    - First build instructions
+    - Basic BUILD.um examples
+
+[ ] Create doc/bootstrap.txt
+    - Bootstrap build process
+    - Vendor dependency info
+    - Build from clean checkout
+
+[ ] Create doc/build-files.txt
+    - Writing BUILD.um files
+    - Target registration
+    - Using FFI functions
+    - Tool API usage
+
+[ ] Create doc/api-reference.txt
+    - All FFI functions documented
+    - Parameters and return types
+    - Usage examples
+    - Error handling
+
+[ ] Create doc/architecture.txt
+    - System architecture overview
+    - Component interaction
+    - Data flow diagrams
+
+[ ] Create README.md
+    - Project overview
+    - Quick build instructions
+    - Link to documentation
+    - License info
+
+================================================================================
+Future Enhancements (Post-MVP)
+================================================================================
+
+[ ] Remote caching support
+[ ] Distributed builds
+[ ] Build profiling and visualization
+[ ] Incremental linking
+[ ] Watch mode for continuous builds
+[ ] Parallel trace validation
+[ ] Speculative execution
+[ ] Cache size management and GC
+[ ] Additional tool APIs (python, cmake, pkg_config, protobuf)
+
+================================================================================
+Current Blockers
+================================================================================
+
+🔴 sys() array passing broken - cannot execute commands
+🟡 Bootstrap build untested - may have issues
+🟡 Self-hosting not verified
+
+================================================================================
+Success Criteria
+================================================================================
+
+✓ Vendor dependencies copied and building
+✓ Bootstrap Makefile created
+✓ Build artifacts organized in build/
+- Bootstrap build works from clean checkout
+- sys() executes commands correctly
+- Glob patterns work (*.c, **/*.h)
+- Self-hosting: build → rebuild → rebuild → identical binaries
+- Integration tests pass
+- Trace introspection working
+- Verbose logging functional
+- Basic documentation complete
+
+================================================================================
