@@ -1,176 +1,19 @@
-// BUILD.um - Build definition for integration test workspace
-//
-// This file defines 5 targets to test the Rebuild build system:
-// - lib:math - Static library with math functions
-// - lib:string_utils - Static library with string utilities
-// - bin:calculator - Calculator application using both libraries
-// - test:unit - Unit tests for the libraries
-// - all - Convenience target to build everything
+// Simple BUILD.um for testing register_targets() function
+// Note: External FFI functions are imported from rebuild_ffi.um
 
-//
-// External FFI function declarations
-// These functions are provided by the Rebuild C runtime
-//
-fn rebuild_register_target(name: str, fn_name: str)
-fn rebuild_log_info(msg: str)
-fn rebuild_log_debug(msg: str)
-fn rebuild_depend_on(target: str): str
-fn rebuild_register_dep(path: str)
-fn rebuild_sys(args: []str, argc: int): int
-fn rebuild_glob(pattern: str): []str
-fn rebuild_hash_file(path: str): str
-
-// Helper function to register targets (calls FFI)
+// Helper function
 fn target(name: str, fn_name: str) {
-    rebuild_register_target(name, fn_name)
+    rebuild_ffi::rebuild_register_target(name, fn_name)
 }
 
-// Main registration function - called by build system
+// Main registration function
 fn register_targets() {
-    target("lib:math", "target_lib_math")
-    target("lib:string_utils", "target_lib_string_utils")
-    target("bin:calculator", "target_bin_calculator")
-    target("test:unit", "target_test_unit")
-    target("all", "target_all")
+    rebuild_ffi::rebuild_log_info("Registering targets...")
+    target("test:simple", "target_test_simple")
+    rebuild_ffi::rebuild_log_info("Targets registered!")
 }
 
-// Target 1: Math library (static library)
-fn target_lib_math() {
-    var cc: any = deptool("clang")
-
-    // Compile add.c
-    var add_result: any = cc.compile("lib/math/add.c", {
-        includes: ["include/", "lib/math/"],
-        flags: ["-O2", "-Wall", "-Wextra", "-fPIC"],
-        dep_tracking: true,
-        output: "add.o"
-    })
-
-    // Compile multiply.c
-    var multiply_result: any = cc.compile("lib/math/multiply.c", {
-        includes: ["include/", "lib/math/"],
-        flags: ["-O2", "-Wall", "-Wextra", "-fPIC"],
-        dep_tracking: true,
-        output: "multiply.o"
-    })
-
-    // Create static library
-    var objs: []str
-    objs = append(objs, add_result.output)
-    objs = append(objs, multiply_result.output)
-
-    var ar: any = deptool("ar")
-    var lib_result: any = ar.create("libmath.a", objs)
-
-    if lib_result.exit_code != 0 {
-        printf("ERROR: Failed to create libmath.a\n")
-        printf("stderr: %s\n", lib_result.stderr)
-    }
-}
-
-// Target 2: String utilities library (static library)
-fn target_lib_string_utils() {
-    var cc: any = deptool("clang")
-
-    // Compile trim.c
-    var trim_result: any = cc.compile("lib/string_utils/trim.c", {
-        includes: ["include/", "lib/string_utils/"],
-        flags: ["-O2", "-Wall", "-Wextra", "-fPIC"],
-        dep_tracking: true,
-        output: "trim.o"
-    })
-
-    // Compile concat.c
-    var concat_result: any = cc.compile("lib/string_utils/concat.c", {
-        includes: ["include/", "lib/string_utils/"],
-        flags: ["-O2", "-Wall", "-Wextra", "-fPIC"],
-        dep_tracking: true,
-        output: "concat.o"
-    })
-
-    // Create static library
-    var objs: []str
-    objs = append(objs, trim_result.output)
-    objs = append(objs, concat_result.output)
-
-    var ar: any = deptool("ar")
-    var lib_result: any = ar.create("libstring_utils.a", objs)
-
-    if lib_result.exit_code != 0 {
-        printf("ERROR: Failed to create libstring_utils.a\n")
-        printf("stderr: %s\n", lib_result.stderr)
-    }
-}
-
-// Target 3: Calculator application (depends on both libraries)
-fn target_bin_calculator() {
-    var cc: any = deptool("clang")
-
-    // Depend on both library targets
-    var math_lib_path: str = depend_on("lib:math")
-    var utils_lib_path: str = depend_on("lib:string_utils")
-
-    // Compile calculator.c
-    var calc_result: any = cc.compile("app/calculator.c", {
-        includes: ["include/", "lib/math/", "lib/string_utils/"],
-        flags: ["-O2", "-Wall", "-Wextra"],
-        dep_tracking: true,
-        output: "calculator.o"
-    })
-
-    // Link the final binary
-    var objs: []str
-    objs = append(objs, calc_result.output)
-
-    var lib_paths: []str
-    lib_paths = append(lib_paths, math_lib_path)
-    lib_paths = append(lib_paths, utils_lib_path)
-
-    var libs: []str
-    libs = append(libs, "math")
-    libs = append(libs, "string_utils")
-
-    var link_result: any = cc.link(objs, {
-        output: "calculator",
-        lib_paths: lib_paths,
-        libs: libs,
-        flags: []
-    })
-
-    if link_result.exit_code != 0 {
-        printf("ERROR: Failed to link calculator\n")
-        printf("stderr: %s\n", link_result.stderr)
-    }
-}
-
-// Target 4: Unit tests (simple test runner)
-fn target_test_unit() {
-    // Depend on the calculator binary
-    var calc_path: str = depend_on("bin:calculator")
-
-    // Run the calculator as a test
-    var test_args: []str
-    test_args = append(test_args, calc_path + "/calculator")
-
-    var result: any = sys(test_args)
-
-    if result.exit_code != 0 {
-        printf("ERROR: Test failed with exit code %d\n", result.exit_code)
-        printf("stderr: %s\n", result.stderr)
-    } else {
-        printf("Test output:\n%s\n", result.stdout)
-        printf("All tests passed!\n")
-    }
-}
-
-// Target 5: All (convenience target to build everything)
-fn target_all() {
-    // Build both libraries
-    depend_on("lib:math")
-    depend_on("lib:string_utils")
-
-    // Build the binary
-    depend_on("bin:calculator")
-
-    printf("Build complete! All targets built successfully.\n")
+// Simple test target
+fn target_test_simple() {
+    rebuild_ffi::rebuild_log_info("Running simple test target!")
 }

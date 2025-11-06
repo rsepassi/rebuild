@@ -427,7 +427,7 @@ void scheduler_execute_recipe(Scheduler* sched, Recipe* recipe) {
     // uv_queue_work(sched->loop, work, worker_execute_recipe, on_worker_complete);
 
     // Set up UMKA context for this recipe
-    umka_bridge_set_context(recipe, sched);
+    umka_bridge_set_context(recipe, sched, sched->umka);
 
     // Create output and temp directories
     if (!recipe->output_dir) {

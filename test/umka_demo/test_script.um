@@ -1,0 +1,9 @@
+// Test UMKA script with external function call and a test function
+
+// External function declaration (implementation provided by C)
+fn print_message(msg: str)
+
+// Function that we'll call from C
+fn test_function() {
+    print_message("Hello from UMKA test_function!")
+}

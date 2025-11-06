@@ -38,16 +38,17 @@ void umka_bridge_cleanup(void) {
 }
 
 // Set thread-local context
-void umka_bridge_set_context(Recipe* recipe, Scheduler* scheduler) {
+void umka_bridge_set_context(Recipe* recipe, Scheduler* scheduler, Umka* umka) {
     pthread_once(&tls_init_once, tls_init);
 
     UmkaContext* ctx = rebuild_malloc(sizeof(UmkaContext));
     ctx->current_recipe = recipe;
     ctx->scheduler = scheduler;
-    ctx->umka = NULL;  // Will be set when script is loaded
+    ctx->umka = umka;
 
     pthread_setspecific(tls_context_key, ctx);
-    LOG_DEBUG("Set UMKA context for recipe: %s", recipe ? recipe->target_name : "NULL");
+    LOG_DEBUG("Set UMKA context for recipe: %s (umka=%p)",
+              recipe ? recipe->target_name : "NULL", umka);
 }
 
 // Get thread-local context
@@ -130,19 +131,36 @@ Umka* umka_load_script(const char* path) {
         return NULL;
     }
 
-    // Initialize UMKA with empty source (this is required for external functions to work)
-    // We provide an empty string as sourceString and NULL fileName
-    // Parameters: fileName, sourceString, stackSize, reserved, argc, argv,
-    //            fileSystemEnabled, implLibsEnabled, warningCallback
-    if (!umkaInit(umka, NULL, "", 1024 * 1024, NULL, 0, NULL, true, true, NULL)) {
-        UmkaError* error = umkaGetError(umka);
-        LOG_ERROR("Failed to initialize UMKA: %s (line %d)",
-                  error->msg, error->line);
+    // Read the BUILD.um file
+    char* original_source = read_file_contents(path);
+    if (!original_source) {
+        LOG_ERROR("Failed to read UMKA script file: %s", path);
         umkaFree(umka);
         return NULL;
     }
 
-    // Register FFI functions BEFORE loading the module
+    // Create modified source with FFI import prepended
+    const char* import_stmt = "import \"rebuild_ffi.um\"\n\n";
+    size_t new_size = strlen(import_stmt) + strlen(original_source) + 1;
+    char* modified_source = rebuild_malloc(new_size);
+    snprintf(modified_source, new_size, "%s%s", import_stmt, original_source);
+    rebuild_free(original_source);
+
+    // Initialize UMKA with the BUILD.um file path and modified source
+    // This loads the modified source as the MAIN MODULE
+    // Using the filename for error reporting but source from string
+    if (!umkaInit(umka, path, modified_source, 1024 * 1024, NULL, 0, NULL, true, true, NULL)) {
+        UmkaError* error = umkaGetError(umka);
+        LOG_ERROR("Failed to initialize UMKA with %s: %s (line %d)",
+                  path, error->msg, error->line);
+        rebuild_free(modified_source);
+        umkaFree(umka);
+        return NULL;
+    }
+
+    rebuild_free(modified_source);
+
+    // Register FFI functions AFTER loading but BEFORE compiling
     if (!umkaAddFunc(umka, "rebuild_depend_on",
                      (UmkaExternFunc)umka_ffi_rebuild_depend_on)) {
         LOG_ERROR("Failed to register rebuild_depend_on FFI function");
@@ -199,26 +217,26 @@ Umka* umka_load_script(const char* path) {
         return NULL;
     }
 
-    // Read the file contents
-    char* source = read_file_contents(path);
-    if (!source) {
-        LOG_ERROR("Failed to read UMKA script file: %s", path);
-        umkaFree(umka);
-        return NULL;
-    }
+    // Add FFI declarations module that was imported by BUILD.um
+    // These external function declarations must be in a separate module
+    const char* ffi_module =
+        "// Rebuild FFI declarations\n"
+        "fn rebuild_depend_on*(target: str): str\n"
+        "fn rebuild_sys*(args: []str, argc: int): int\n"
+        "fn rebuild_register_dep*(path: str)\n"
+        "fn rebuild_glob*(pattern: str): []str\n"
+        "fn rebuild_hash_file*(path: str): str\n"
+        "fn rebuild_log_info*(msg: str)\n"
+        "fn rebuild_log_debug*(msg: str)\n"
+        "fn rebuild_register_target*(name: str, fn_name: str)\n";
 
-    // Load the module from source string (this is required for external functions)
-    if (!umkaAddModule(umka, path, source)) {
+    if (!umkaAddModule(umka, "rebuild_ffi.um", ffi_module)) {
         UmkaError* error = umkaGetError(umka);
-        LOG_ERROR("Failed to add UMKA module %s: %s (line %d)",
-                  path, error->msg, error->line);
-        rebuild_free(source);
+        LOG_ERROR("Failed to add FFI module: %s (line %d)",
+                  error->msg, error->line);
         umkaFree(umka);
         return NULL;
     }
-
-    // Free the source buffer
-    rebuild_free(source);
 
     // Compile the script
     if (!umkaCompile(umka)) {
@@ -298,12 +316,10 @@ UmkaFiberStatus umka_resume_fiber(UmkaFiber fiber) {
         return UMKA_FIBER_ERROR;
     }
 
-    // Check if UMKA is still alive (fiber may have yielded)
-    if (!umkaAlive(ctx->umka)) {
-        return UMKA_FIBER_COMPLETE;
-    }
-
-    return UMKA_FIBER_RUNNING;
+    // For Phase 1/2, we do synchronous execution
+    // If the call succeeded (result == 0), the function completed successfully
+    // In Phase 3+, we would check umkaAlive() to handle yielded fibers
+    return UMKA_FIBER_COMPLETE;
 }
 
 // Check if fiber is done
