@@ -215,6 +215,13 @@ int main(int argc, char** argv) {
 
     // Set tool manager in scheduler
     scheduler->tools = tool_mgr;
+
+    // Set up UMKA bridge callbacks for scheduler integration
+    UmkaBridgeCallbacks callbacks;
+    callbacks.depend_on = scheduler_on_depend_request;
+    callbacks.sys = NULL;  // sys callback uses scheduler_execute_sys directly
+    umka_bridge_set_callbacks(&callbacks);
+
     LOG_DEBUG("Scheduler created");
 
     // Step 5: Find and load BUILD.um file
@@ -328,11 +335,14 @@ cleanup:
     // Note: UMKA cleanup is handled by scheduler_free
 
     // Free scheduler (this also frees recipes, registry, and internal structures)
+    // Note: scheduler_free also frees the tool manager, so we set tool_mgr to NULL
+    // to avoid double-free
     if (scheduler) {
         scheduler_free(scheduler);
+        tool_mgr = NULL;  // Already freed by scheduler_free
     }
 
-    // Free tool manager
+    // Free tool manager (only if not already freed by scheduler)
     if (tool_mgr) {
         tool_manager_free(tool_mgr);
     }
