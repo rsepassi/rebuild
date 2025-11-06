@@ -1,24 +1,196 @@
-// BUILD.um - Simple test BUILD.um to verify FFI functions work
+// BUILD.um - Rebuild build system self-hosting configuration
 //
-// This is a minimal BUILD.um file to test the basic FFI functionality
-// FFI functions are automatically declared by the rebuild system
+// This file builds the rebuild binary itself using the rebuild build system.
+// Uses direct sys() calls since the tool API is not yet fully implemented.
 
 // Helper function to register targets
-// Uses FFI function rebuild_register_target which is automatically declared
 fn target(name: str, fn_name: str) {
     rebuild_register_target(name, fn_name)
 }
 
 // Main registration function - called by build system
 fn register_targets() {
+    // Register build targets
+    target("rebuild", "target_rebuild")
     target("test", "target_test")
     target("test_sys", "target_test_sys")
     target("test_glob", "target_test_glob")
 }
 
+// ============================================================================
+// Build Targets
+// ============================================================================
+
+// Build the rebuild binary
+fn target_rebuild(): str {
+    rebuild_log_info("Building rebuild binary...")
+
+    // Configuration - use absolute paths since sys() runs in temp directory
+    var root_dir: str = "/home/user/rebuild"
+    var build_dir: str = root_dir + "/build"
+    var src_dir: str = root_dir + "/src"
+    var vendor_dir: str = root_dir + "/vendor"
+
+    // Vendor library paths (assume already built by bootstrap)
+    var libuv_dir: str = vendor_dir + "/libuv"
+    var umka_dir: str = vendor_dir + "/umka"
+    var blake2_dir: str = vendor_dir + "/blake2"
+
+    var libuv_lib: str = libuv_dir + "/.libs/libuv.a"
+    var umka_lib: str = umka_dir + "/build/libumka.a"
+
+    // Register vendor library dependencies
+    rebuild_log_info("Registering vendor dependencies...")
+    rebuild_depend_on(libuv_lib)
+    rebuild_depend_on(umka_lib)
+
+    // Depend on the vendor directories to detect changes
+    rebuild_depend_on_tree(libuv_dir + "/include")
+    rebuild_depend_on_tree(umka_dir + "/src")
+
+    // Collect all object files
+    var objs: []str
+
+    // 1. Compile blake2b
+    rebuild_log_info("Compiling blake2b...")
+    var blake2_obj: str = build_dir + "/blake2b-ref.o"
+
+    var blake2_args: []str
+    blake2_args = append(blake2_args, "cc")
+    blake2_args = append(blake2_args, "-std=c11")
+    blake2_args = append(blake2_args, "-O2")
+    blake2_args = append(blake2_args, "-Wall")
+    blake2_args = append(blake2_args, "-Wextra")
+    blake2_args = append(blake2_args, "-g")
+    blake2_args = append(blake2_args, "-I" + blake2_dir)
+    blake2_args = append(blake2_args, "-c")
+    blake2_args = append(blake2_args, blake2_dir + "/blake2b-ref.c")
+    blake2_args = append(blake2_args, "-o")
+    blake2_args = append(blake2_args, blake2_obj)
+
+    var blake2_result: int = rebuild_sys(blake2_args)
+    if blake2_result != 0 {
+        rebuild_log_info("ERROR: blake2b compilation failed")
+        return ""
+    }
+    rebuild_depend_on(blake2_dir + "/blake2b-ref.c")
+    objs = append(objs, blake2_obj)
+
+    // 2. Compile all rebuild sources...")
+    rebuild_log_info("Compiling rebuild sources...")
+    // Use relative path for glob since absolute paths seem to cause issues
+    var src_files: []str = rebuild_glob("src/*.c")
+
+    var num_files: int = len(src_files)
+
+    // Debug: test if the loop runs with hardcoded value
+    rebuild_log_info("Testing hardcoded loop")
+    for k := 0; k < 2; k++ {
+        rebuild_log_info("Hardcoded loop works")
+    }
+
+    rebuild_log_info("About to compile files with dynamic loop")
+
+    for i := 0; i < num_files; i++ {
+        var src_relative: str = src_files[i]
+        // Convert to absolute path for compilation
+        var src: str = root_dir + "/" + src_relative
+        rebuild_log_info("Loop iteration starting")
+
+        // Extract filename for object file
+        var basename: str = src_relative
+        var last_slash: int = -1
+        for j := 0; j < len(basename); j++ {
+            if basename[j] == '/' {
+                last_slash = j
+            }
+        }
+        if last_slash >= 0 {
+            basename = slice(basename, last_slash + 1)
+        }
+
+        // Replace .c with .o
+        var dot_idx: int = -1
+        for j := 0; j < len(basename); j++ {
+            if basename[j] == '.' {
+                dot_idx = j
+            }
+        }
+        if dot_idx >= 0 {
+            basename = slice(basename, 0, dot_idx) + ".o"
+        }
+
+        var obj: str = build_dir + "/" + basename
+
+        rebuild_log_info("  Compiling " + src + "...")
+
+        var compile_args: []str
+        compile_args = append(compile_args, "cc")
+        compile_args = append(compile_args, "-std=c11")
+        compile_args = append(compile_args, "-O2")
+        compile_args = append(compile_args, "-Wall")
+        compile_args = append(compile_args, "-Wextra")
+        compile_args = append(compile_args, "-g")
+        compile_args = append(compile_args, "-I" + src_dir)
+        compile_args = append(compile_args, "-I" + libuv_dir + "/include")
+        compile_args = append(compile_args, "-I" + umka_dir + "/src")
+        compile_args = append(compile_args, "-I" + blake2_dir)
+        compile_args = append(compile_args, "-c")
+        compile_args = append(compile_args, src)
+        compile_args = append(compile_args, "-o")
+        compile_args = append(compile_args, obj)
+
+        var result: int = rebuild_sys(compile_args)
+
+        if result != 0 {
+            rebuild_log_info("ERROR: Compilation failed for " + src)
+            return ""
+        }
+
+        objs = append(objs, obj)
+    }
+
+    // 3. Link everything together
+    rebuild_log_info("Linking rebuild binary...")
+    var output: str = build_dir + "/rebuild"
+
+    var link_args: []str
+    link_args = append(link_args, "cc")
+    for i := 0; i < len(objs); i++ {
+        link_args = append(link_args, objs[i])
+    }
+    link_args = append(link_args, umka_lib)
+    link_args = append(link_args, libuv_lib)
+    link_args = append(link_args, "-o")
+    link_args = append(link_args, output)
+    link_args = append(link_args, "-lm")
+    link_args = append(link_args, "-ldl")
+    link_args = append(link_args, "-lpthread")
+
+    var final_link: int = rebuild_sys(link_args)
+
+    if final_link != 0 {
+        rebuild_log_info("ERROR: Linking failed")
+        return ""
+    }
+
+    rebuild_log_info("Build complete: " + output)
+    return output
+}
+
+// ============================================================================
+// Test Targets
+// ============================================================================
+
 // Test target - basic functionality
 fn target_test() {
     rebuild_log_info("Running test target...")
+    rebuild_log_info("Testing for loop...")
+
+    for i := 0; i < 3; i++ {
+        rebuild_log_info("Loop iteration")
+    }
+
     rebuild_log_info("Test passed!")
 }
 
@@ -27,15 +199,15 @@ fn target_test_sys() {
     rebuild_log_info("Testing sys() function...")
 
     // Test running echo command
-    args := make([]str, 2)
-    args[0] = "echo"
-    args[1] = "Hello from sys()!"
-    exit_code := rebuild_sys(args)
+    var args: []str
+    args = append(args, "echo")
+    args = append(args, "Hello from sys()!")
+    var result: int = rebuild_sys(args)
 
-    if exit_code == 0 {
+    if result == 0 {
         rebuild_log_info("sys() test passed!")
     } else {
-        rebuild_log_info("sys() test failed!")
+        rebuild_log_info("ERROR: sys() test failed!")
     }
 }
 
@@ -44,11 +216,11 @@ fn target_test_glob() {
     rebuild_log_info("Testing glob() function...")
 
     // Test globbing source files
-    files := rebuild_glob("src/*.c")
+    var files: []str = rebuild_glob("src/*.c")
     rebuild_log_info("Found some source files")
 
     // Log first 3 filenames
-    count := len(files)
+    var count: int = len(files)
     if count > 3 {
         count = 3
     }
