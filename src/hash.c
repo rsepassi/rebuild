@@ -4,6 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 // Compare two hashes for equality
 bool hash_equal(const Hash* a, const Hash* b) {
@@ -138,4 +141,106 @@ void hash_data(const void* data, size_t len, Hash* out) {
         LOG_ERROR("Failed to hash data with BLAKE2b");
         memset(out->bytes, 0, sizeof(out->bytes));
     }
+}
+
+// Helper function to compare directory entries for qsort
+static int compare_dirent_names(const void* a, const void* b) {
+    const struct dirent** da = (const struct dirent**)a;
+    const struct dirent** db = (const struct dirent**)b;
+    return strcmp((*da)->d_name, (*db)->d_name);
+}
+
+// Hash a directory tree recursively
+bool hash_tree(const char* path, Hash* out) {
+    if (path == NULL || out == NULL) {
+        return false;
+    }
+
+    // Check if path exists and get its type
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        LOG_WARN("Failed to stat path: %s", path);
+        return false;
+    }
+
+    // If it's a regular file, just hash the file
+    if (S_ISREG(st.st_mode)) {
+        return hash_file(path, out);
+    }
+
+    // If it's not a directory, we can't hash it
+    if (!S_ISDIR(st.st_mode)) {
+        LOG_WARN("Path is neither file nor directory: %s", path);
+        return false;
+    }
+
+    // Open directory
+    DIR* dir = opendir(path);
+    if (dir == NULL) {
+        LOG_WARN("Failed to open directory: %s", path);
+        return false;
+    }
+
+    // Read all directory entries (excluding . and ..)
+    struct dirent** entries = NULL;
+    int entry_count = 0;
+    int entry_capacity = 64;
+    entries = rebuild_malloc(sizeof(struct dirent*) * entry_capacity);
+
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != NULL) {
+        // Skip . and ..
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        // Resize array if needed
+        if (entry_count >= entry_capacity) {
+            entry_capacity *= 2;
+            entries = rebuild_realloc(entries, sizeof(struct dirent*) * entry_capacity);
+        }
+
+        // Copy directory entry
+        entries[entry_count] = rebuild_malloc(sizeof(struct dirent));
+        memcpy(entries[entry_count], entry, sizeof(struct dirent));
+        entry_count++;
+    }
+
+    closedir(dir);
+
+    // Sort entries by name for deterministic ordering
+    if (entry_count > 0) {
+        qsort(entries, entry_count, sizeof(struct dirent*), compare_dirent_names);
+    }
+
+    // Initialize result hash to zero
+    memset(out->bytes, 0, sizeof(out->bytes));
+
+    // Hash each entry
+    for (int i = 0; i < entry_count; i++) {
+        // Build full path
+        size_t path_len = strlen(path) + strlen(entries[i]->d_name) + 2;
+        char* full_path = rebuild_malloc(path_len);
+        snprintf(full_path, path_len, "%s/%s", path, entries[i]->d_name);
+
+        // Hash the entry name first (for directory structure)
+        Hash name_hash;
+        hash_data(entries[i]->d_name, strlen(entries[i]->d_name), &name_hash);
+        hash_combine(out, &name_hash);
+
+        // Hash the entry contents (recursively for directories)
+        Hash entry_hash;
+        if (hash_tree(full_path, &entry_hash)) {
+            hash_combine(out, &entry_hash);
+        } else {
+            LOG_DEBUG("Skipping unhashable entry: %s", full_path);
+        }
+
+        rebuild_free(full_path);
+        rebuild_free(entries[i]);
+    }
+
+    rebuild_free(entries);
+
+    return true;
 }
